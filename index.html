@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VD King Scourge Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #1a1a1a;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden; /* Mencegah scroll saat main di HP */
+            user-select: none; /* Mencegah teks terblok saat di-tap */
+        }
+
+        .scoreboard {
+            display: flex;
+            gap: 40px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .score-box {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .score-title {
+            font-size: 14px;
+            color: #888;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .score-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .score-value.best {
+            color: #ffd700; /* Warna emas untuk skor terbaik */
+        }
+
+        canvas {
+            background-color: #222;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .instructions {
+            margin-top: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="scoreboard">
+        <div class="score-box">
+            <span class="score-title">Score</span>
+            <span class="score-value" id="currentScore">0</span>
+        </div>
+        <div class="score-box">
+            <span class="score-title">Last</span>
+            <span class="score-value" id="lastScore">0</span>
+        </div>
+        <div class="score-box">
+            <span class="score-title">Best</span>
+            <span class="score-value best" id="bestScore">0</span>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas" width="400" height="400"></canvas>
+
+    <div class="instructions">
+        Tekan <b>SPASI</b> (PC) atau <b>SENTUH LAYAR</b> (HP) saat garis di area putih.
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Referensi elemen skor DOM
+        const scoreEl = document.getElementById('currentScore');
+        const lastEl = document.getElementById('lastScore');
+        const bestEl = document.getElementById('bestScore');
+
+        // Variabel Game
+        let score = 0;
+        let lastScore = 0;
+        let bestScore = 0;
+        
+        let isGameOver = false;
+
+        // Pengaturan Lingkaran dan Jarum
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const radius = 120;
+        
+        // Logika Putaran (Menggunakan total radian agar tidak bug saat melewati angka 0)
+        let needleRotation = 0; 
+        let targetRotation = Math.PI; // Posisi target pertama (180 derajat)
+        const targetWidth = Math.PI / 3.5; // Lebar area putih (bisa dikecilkan agar lebih susah)
+        
+        // Kecepatan putaran (Sesuaikan ini untuk membuatnya lebih cepat/lambat)
+        let baseSpeed = 0.08; 
+        let currentSpeed = baseSpeed;
+
+        // Variabel untuk teks feedback (PERFECT! / MISS!) di tengah
+        let feedbackText = "";
+        let feedbackColor = "";
+        let feedbackOpacity = 0;
+
+        // Fungsi untuk mengacak posisi target selanjutnya DI DEPAN jarum
+        function spawnNextTarget() {
+            // Target baru akan muncul secara acak, tapi dijamin di depan jarum saat ini
+            const minDistance = Math.PI * 0.5; // Jarak minimal (90 derajat)
+            const maxDistance = Math.PI * 1.5; // Jarak maksimal (270 derajat)
+            targetRotation = needleRotation + minDistance + (Math.random() * (maxDistance - minDistance));
+        }
+
+        // Fungsi saat gagal
+        function miss() {
+            // Update skor
+            lastScore = score;
+            if (score > bestScore) {
+                bestScore = score;
+            }
+            score = 0;
+            currentSpeed = baseSpeed; // Reset kecepatan
+            
+            updateScoreboard();
+            showFeedback("MISS!", "#ff4444");
+
+            // Reset posisi jarum untuk siklus baru
+            needleRotation = 0;
+            targetRotation = Math.PI;
+        }
+
+        // Fungsi saat berhasil
+        function hit() {
+            score++;
+            // Sedikit mempercepat jarum setiap kali berhasil agar lebih menantang
+            currentSpeed += 0.002; 
+            
+            updateScoreboard();
+            showFeedback("PERFECT!", "#ff4444");
+            spawnNextTarget();
+        }
+
+        // Mengecek input pemain
+        function checkInput() {
+            // Jarak absolute antara posisi jarum dan tengah target area putih
+            const distance = Math.abs(needleRotation - targetRotation);
+            
+            // Jika jaraknya lebih kecil dari setengah lebar target, berarti kena!
+            if (distance <= targetWidth / 2) {
+                hit();
+            } else {
+                miss();
+            }
+        }
+
+        // Menampilkan teks "PERFECT" di tengah lingkaran
+        function showFeedback(text, color) {
+            feedbackText = text;
+            feedbackColor = color;
+            feedbackOpacity = 1.0;
+        }
+
+        // Memperbarui teks di HTML
+        function updateScoreboard() {
+            scoreEl.innerText = score;
+            lastEl.innerText = lastScore;
+            bestEl.innerText = bestScore;
+        }
+
+        // Fungsi utama untuk menggambar visual di canvas
+        function draw() {
+            // Hapus frame sebelumnya
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Gambar Jalur Lingkaran Dasar (Gelap)
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = '#444';
+            ctx.lineWidth = 15;
+            ctx.stroke();
+
+            // 2. Gambar Area Target (Putih)
+            ctx.beginPath();
+            // Menghitung start dan end angle berdasarkan targetRotation (memakai modulo agar rapi)
+            const startAngle = (targetRotation - targetWidth / 2) % (Math.PI * 2);
+            const endAngle = (targetRotation + targetWidth / 2) % (Math.PI * 2);
+            
+            // Perlu perlakuan khusus jika endAngle melewati titik 0 (360 derajat)
+            ctx.arc(centerX, centerY, radius, targetRotation - targetWidth/2, targetRotation + targetWidth/2);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 15;
+            ctx.stroke();
+
+            // 3. Gambar Jarum (Merah)
+            // Menghitung posisi ujung dan pangkal jarum menggunakan Trigonometri (Cos/Sin)
+            const visualAngle = needleRotation % (Math.PI * 2);
+            const innerRadius = radius - 30; // Mulai agak ke dalam
+            const outerRadius = radius + 20; // Tembus agak ke luar
+            
+            const startX = centerX + Math.cos(visualAngle) * innerRadius;
+            const startY = centerY + Math.sin(visualAngle) * innerRadius;
+            const endX = centerX + Math.cos(visualAngle) * outerRadius;
+            const endY = centerY + Math.sin(visualAngle) * outerRadius;
+
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(endX, endY);
+            ctx.strokeStyle = '#ff3333';
+            ctx.lineWidth = 4;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+
+            // 4. Gambar Teks Feedback di Tengah
+            if (feedbackOpacity > 0) {
+                ctx.fillStyle = `rgba(255, 51, 51, ${feedbackOpacity})`; // Menyesuaikan warna dengan gambar
+                if (feedbackText === "MISS!") {
+                    ctx.fillStyle = `rgba(150, 150, 150, ${feedbackOpacity})`;
+                }
+                ctx.font = 'bold 28px "Segoe UI", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(feedbackText, centerX, centerY);
+                
+                // Kurangi opacity perlahan agar teks memudar
+                feedbackOpacity -= 0.03;
+            }
+        }
+
+        // Loop Animasi Utama
+        function gameLoop() {
+            // Gerakkan jarum
+            needleRotation += currentSpeed;
+
+            // Logika Auto-Miss: Jika jarum melewati target sepenuhnya tanpa dipencet
+            if (needleRotation > targetRotation + targetWidth / 2) {
+                miss();
+            }
+
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Event Listener: SPASI untuk PC
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault(); // Mencegah layar scroll ke bawah saat pencet spasi
+                checkInput();
+            }
+        });
+
+        // Event Listener: TOUCH untuk Layar Sentuh / HP
+        window.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Mencegah perilaku default browser HP (seperti scroll)
+            checkInput();
+        }, { passive: false }); // Passive false dibutuhkan untuk preventDefault di touchstart
+
+        // Mulai Game
+        gameLoop();
+    </script>
+</body>
+</html>
